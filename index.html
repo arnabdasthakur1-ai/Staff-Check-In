@@ -45,9 +45,11 @@
 <div class="card">
   <h1>Staff Check-In</h1>
 
-  <label for="empId">Employee ID</label>
-  <input type="text" id="empId" placeholder="Enter your Employee ID" autocomplete="off">
-  <div id="nameResult" class="info-row" style="display:none"></div>
+  <label for="name">Employee Name</label>
+  <input type="text" id="name" placeholder="Enter your name" autocomplete="off">
+
+  <label for="hub">Hub Name</label>
+  <input type="text" id="hub" placeholder="Enter your hub name" autocomplete="off">
 
   <video id="video" autoplay playsinline></video>
   <canvas id="canvas"></canvas>
@@ -67,7 +69,7 @@
 
 <script>
 // ====== CONFIG: paste your Apps Script Web App URL here ======
-const SCRIPT_URL = "https://script.google.com/a/macros/flipkart.com/s/AKfycbwjcqml0xt9jx_Suf-dnFLXXslu_phE6Xi6a6LqmYnxUfAN9qc0VLZLqjLpTJlfXDnW/exec";
+const SCRIPT_URL = "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE";
 // ================================================================
 
 const video = document.getElementById('video');
@@ -79,11 +81,10 @@ const submitBtn = document.getElementById('submitBtn');
 const statusEl = document.getElementById('status');
 const locStatus = document.getElementById('locStatus');
 const timeStatus = document.getElementById('timeStatus');
-const empIdInput = document.getElementById('empId');
-const nameResult = document.getElementById('nameResult');
+const nameInput = document.getElementById('name');
+const hubInput = document.getElementById('hub');
 
 let stream, capturedDataUrl = null, coords = null;
-let resolvedName = null, resolvedHub = null, lookupTimer = null;
 
 function setTime() {
   timeStatus.textContent = '🕒 ' + new Date().toLocaleString();
@@ -136,39 +137,11 @@ retakeBtn.addEventListener('click', () => {
   checkReady();
 });
 
-empIdInput.addEventListener('input', () => {
-  resolvedName = null; resolvedHub = null;
-  nameResult.style.display = 'none';
-  checkReady();
-  clearTimeout(lookupTimer);
-  const id = empIdInput.value.trim();
-  if (!id) return;
-  lookupTimer = setTimeout(() => lookupEmployee(id), 500);
-});
-
-async function lookupEmployee(id) {
-  nameResult.style.display = 'flex';
-  nameResult.textContent = 'Looking up…';
-  try {
-    const res = await fetch(`${SCRIPT_URL}?id=${encodeURIComponent(id)}`);
-    const data = await res.json();
-    if (data.found) {
-      resolvedName = data.name;
-      resolvedHub = data.hub || '';
-      nameResult.innerHTML = `<span class="ok">✅ ${resolvedName}</span><span>${resolvedHub}</span>`;
-    } else {
-      resolvedName = null;
-      nameResult.innerHTML = `<span class="err">❌ Employee ID not found</span>`;
-    }
-  } catch (e) {
-    resolvedName = null;
-    nameResult.innerHTML = `<span class="err">❌ Lookup failed</span>`;
-  }
-  checkReady();
-}
+nameInput.addEventListener('input', checkReady);
+hubInput.addEventListener('input', checkReady);
 
 function checkReady() {
-  submitBtn.disabled = !(empIdInput.value.trim() && resolvedName && capturedDataUrl && coords);
+  submitBtn.disabled = !(nameInput.value.trim() && hubInput.value.trim() && capturedDataUrl && coords);
 }
 
 submitBtn.addEventListener('click', async () => {
@@ -177,9 +150,8 @@ submitBtn.addEventListener('click', async () => {
   statusEl.className = 'warn';
 
   const payload = {
-    empId: empIdInput.value.trim(),
-    name: resolvedName,
-    hub: resolvedHub,
+    name: nameInput.value.trim(),
+    hub: hubInput.value.trim(),
     photo: capturedDataUrl,
     lat: coords.lat,
     lng: coords.lng,
