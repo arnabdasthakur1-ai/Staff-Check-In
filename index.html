@@ -1,39 +1,179 @@
-const SPREADSHEET_ID = '19nsXvIcQbtZj3nTDxXsWKT8AMtizYmYGm5peK3NkRDc';
-const SHEET_NAME = 'CheckIns';
-const DRIVE_FOLDER_ID = '1MwA5kl8Ei8M7Ld3C8Q9bdKocM53kbutX';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Staff Check-In</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    background: #0f172a; color: #e2e8f0; min-height: 100vh;
+    display: flex; align-items: center; justify-content: center; padding: 16px;
+  }
+  .card {
+    background: #1e293b; border-radius: 16px; padding: 24px;
+    max-width: 420px; width: 100%; box-shadow: 0 10px 30px rgba(0,0,0,.4);
+  }
+  h1 { font-size: 20px; margin: 0 0 16px; text-align: center; }
+  label { font-size: 13px; color: #94a3b8; display: block; margin-bottom: 6px; }
+  input[type=text] {
+    width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #334155;
+    background: #0f172a; color: #fff; font-size: 15px; margin-bottom: 16px;
+  }
+  video, canvas, #snapshot {
+    width: 100%; border-radius: 12px; background: #000; display: block;
+  }
+  canvas, #snapshot { display: none; }
+  .btn {
+    width: 100%; padding: 13px; border: none; border-radius: 8px;
+    font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 10px;
+  }
+  .btn-primary { background: #22c55e; color: #052e16; }
+  .btn-secondary { background: #334155; color: #fff; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .info-row {
+    display: flex; justify-content: space-between; font-size: 12px;
+    color: #94a3b8; margin-top: 10px; padding: 8px 10px;
+    background: #0f172a; border-radius: 8px;
+  }
+  #status { text-align: center; font-size: 13px; margin-top: 12px; min-height: 18px; }
+  .ok { color: #4ade80; } .err { color: #f87171; } .warn { color: #facc15; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Staff Check-In</h1>
 
-function doPost(e) {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const errSheet = ss.getSheetByName('Errors') || ss.insertSheet('Errors');
+  <label for="name">Employee Name</label>
+  <input type="text" id="name" placeholder="Enter your name" autocomplete="off">
 
+  <label for="hub">Hub Name</label>
+  <input type="text" id="hub" placeholder="Enter your hub name" autocomplete="off">
+
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas"></canvas>
+  <img id="snapshot" alt="captured selfie">
+
+  <button class="btn btn-primary" id="captureBtn">📸 Capture Selfie</button>
+  <button class="btn btn-secondary" id="retakeBtn" style="display:none">Retake</button>
+
+  <div class="info-row">
+    <span id="locStatus">📍 Locating…</span>
+    <span id="timeStatus">🕒 --</span>
+  </div>
+
+  <button class="btn btn-primary" id="submitBtn" disabled style="margin-top:16px">Submit</button>
+  <div id="status"></div>
+</div>
+
+<script>
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxFUjuPGvt1xpNuj5IH4P4qO4XTekIvFwwgElIB_gPpm-VlAqrBf3s5Sd1UPvTAY48/exec";
+
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const snapshot = document.getElementById('snapshot');
+const captureBtn = document.getElementById('captureBtn');
+const retakeBtn = document.getElementById('retakeBtn');
+const submitBtn = document.getElementById('submitBtn');
+const statusEl = document.getElementById('status');
+const locStatus = document.getElementById('locStatus');
+const timeStatus = document.getElementById('timeStatus');
+const nameInput = document.getElementById('name');
+const hubInput = document.getElementById('hub');
+
+let stream, capturedDataUrl = null, coords = null;
+
+function setTime() {
+  timeStatus.textContent = '🕒 ' + new Date().toLocaleString();
+}
+setTime();
+setInterval(setTime, 1000);
+
+navigator.geolocation.getCurrentPosition(
+  pos => {
+    coords = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy };
+    locStatus.textContent = `📍 ${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`;
+    checkReady();
+  },
+  err => { locStatus.textContent = '📍 Location denied'; locStatus.className='err'; },
+  { enableHighAccuracy: true, timeout: 15000 }
+);
+
+async function startCamera() {
   try {
-    const data = JSON.parse(e.postData.contents);
-
-    let sheet = ss.getSheetByName(SHEET_NAME);
-    if (!sheet) {
-      sheet = ss.insertSheet(SHEET_NAME);
-    }
-    if (sheet.getLastRow() === 0) {
-      sheet.appendRow(['Timestamp', 'Name', 'Hub', 'Latitude', 'Longitude', 'Accuracy', 'Photo URL']);
-    }
-
-    const base64 = data.photo.split(',')[1];
-    const blob = Utilities.newBlob(Utilities.base64Decode(base64), 'image/jpeg',
-      data.name.replace(/\s+/g, '_') + '_' + new Date().getTime() + '.jpg');
-    const folder = DriveApp.getFolderById(DRIVE_FOLDER_ID);
-    const file = folder.createFile(blob);
-    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-
-    sheet.appendRow([
-      data.timestamp, data.name, data.hub, data.lat, data.lng, data.accuracy, file.getUrl()
-    ]);
-
-    return ContentService.createTextOutput(JSON.stringify({ result: 'success' }))
-      .setMimeType(ContentService.MimeType.JSON);
-
-  } catch (err) {
-    errSheet.appendRow([new Date().toISOString(), err.toString(), e.postData ? e.postData.contents : 'NO POSTDATA']);
-    return ContentService.createTextOutput(JSON.stringify({ result: 'error', message: err.toString() }))
-      .setMimeType(ContentService.MimeType.JSON);
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user' }, audio: false
+    });
+    video.srcObject = stream;
+  } catch (e) {
+    statusEl.textContent = 'Camera access denied. Camera is required — file upload is not permitted.';
+    statusEl.className = 'err';
   }
 }
+startCamera();
+
+captureBtn.addEventListener('click', () => {
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  capturedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+  snapshot.src = capturedDataUrl;
+  snapshot.style.display = 'block';
+  video.style.display = 'none';
+  captureBtn.style.display = 'none';
+  retakeBtn.style.display = 'block';
+  checkReady();
+});
+
+retakeBtn.addEventListener('click', () => {
+  capturedDataUrl = null;
+  snapshot.style.display = 'none';
+  video.style.display = 'block';
+  captureBtn.style.display = 'block';
+  retakeBtn.style.display = 'none';
+  checkReady();
+});
+
+nameInput.addEventListener('input', checkReady);
+hubInput.addEventListener('input', checkReady);
+
+function checkReady() {
+  submitBtn.disabled = !(nameInput.value.trim() && hubInput.value.trim() && capturedDataUrl && coords);
+}
+
+submitBtn.addEventListener('click', async () => {
+  submitBtn.disabled = true;
+  statusEl.textContent = 'Submitting…';
+  statusEl.className = 'warn';
+
+  const payload = {
+    name: nameInput.value.trim(),
+    hub: hubInput.value.trim(),
+    photo: capturedDataUrl,
+    lat: coords.lat,
+    lng: coords.lng,
+    accuracy: coords.acc,
+    timestamp: new Date().toISOString()
+  };
+
+  try {
+    await fetch(SCRIPT_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    });
+    statusEl.textContent = '✅ Check-in recorded successfully';
+    statusEl.className = 'ok';
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    document.querySelectorAll('input,button').forEach(el => el.disabled = true);
+  } catch (e) {
+    statusEl.textContent = '❌ Submission failed — check network / URL';
+    statusEl.className = 'err';
+    submitBtn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
