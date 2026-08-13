@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Staff Check-In</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    background: #0f172a; color: #e2e8f0; min-height: 100vh;
+    display: flex; align-items: center; justify-content: center; padding: 16px;
+  }
+  .card {
+    background: #1e293b; border-radius: 16px; padding: 24px;
+    max-width: 420px; width: 100%; box-shadow: 0 10px 30px rgba(0,0,0,.4);
+  }
+  h1 { font-size: 20px; margin: 0 0 16px; text-align: center; }
+  label { font-size: 13px; color: #94a3b8; display: block; margin-bottom: 6px; }
+  input[type=text] {
+    width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #334155;
+    background: #0f172a; color: #fff; font-size: 15px; margin-bottom: 16px;
+  }
+  video, canvas, #snapshot {
+    width: 100%; border-radius: 12px; background: #000; display: block;
+  }
+  canvas, #snapshot { display: none; }
+  .btn {
+    width: 100%; padding: 13px; border: none; border-radius: 8px;
+    font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 10px;
+  }
+  .btn-primary { background: #22c55e; color: #052e16; }
+  .btn-secondary { background: #334155; color: #fff; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .info-row {
+    display: flex; justify-content: space-between; font-size: 12px;
+    color: #94a3b8; margin-top: 10px; padding: 8px 10px;
+    background: #0f172a; border-radius: 8px;
+  }
+  #status { text-align: center; font-size: 13px; margin-top: 12px; min-height: 18px; }
+  .ok { color: #4ade80; } .err { color: #f87171; } .warn { color: #facc15; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Staff Check-In</h1>
+
+  <label for="empId">Employee ID</label>
+  <input type="text" id="empId" placeholder="Enter your Employee ID" autocomplete="off">
+  <div id="nameResult" class="info-row" style="display:none"></div>
+
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas"></canvas>
+  <img id="snapshot" alt="captured selfie">
+
+  <button class="btn btn-primary" id="captureBtn">📸 Capture Selfie</button>
+  <button class="btn btn-secondary" id="retakeBtn" style="display:none">Retake</button>
+
+  <div class="info-row">
+    <span id="locStatus">📍 Locating…</span>
+    <span id="timeStatus">🕒 --</span>
+  </div>
+
+  <button class="btn btn-primary" id="submitBtn" disabled style="margin-top:16px">Submit</button>
+  <div id="status"></div>
+</div>
+
+<script>
+// ====== CONFIG: paste your Apps Script Web App URL here ======
+const SCRIPT_URL = "https://script.google.com/a/macros/flipkart.com/s/AKfycbw87VC6XdpnZMDSC8ohqGnrY7MngCrPsEZRHYxzEsO2p3tSD5SWq9Auaa7PoThT1yHo/exec";
+// ================================================================
+
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const snapshot = document.getElementById('snapshot');
+const captureBtn = document.getElementById('captureBtn');
+const retakeBtn = document.getElementById('retakeBtn');
+const submitBtn = document.getElementById('submitBtn');
+const statusEl = document.getElementById('status');
+const locStatus = document.getElementById('locStatus');
+const timeStatus = document.getElementById('timeStatus');
+const empIdInput = document.getElementById('empId');
+const nameResult = document.getElementById('nameResult');
+
+let stream, capturedDataUrl = null, coords = null;
+let resolvedName = null, resolvedHub = null, lookupTimer = null;
+
+function setTime() {
+  timeStatus.textContent = '🕒 ' + new Date().toLocaleString();
+}
+setTime();
+setInterval(setTime, 1000);
+
+navigator.geolocation.getCurrentPosition(
+  pos => {
+    coords = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy };
+    locStatus.textContent = `📍 ${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`;
+    checkReady();
+  },
+  err => { locStatus.textContent = '📍 Location denied'; locStatus.className='err'; },
+  { enableHighAccuracy: true, timeout: 15000 }
+);
+
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user' }, audio: false
+    });
+    video.srcObject = stream;
+  } catch (e) {
+    statusEl.textContent = 'Camera access denied. Camera is required — file upload is not permitted.';
+    statusEl.className = 'err';
+  }
+}
+startCamera();
+
+captureBtn.addEventListener('click', () => {
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  capturedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+  snapshot.src = capturedDataUrl;
+  snapshot.style.display = 'block';
+  video.style.display = 'none';
+  captureBtn.style.display = 'none';
+  retakeBtn.style.display = 'block';
+  checkReady();
+});
+
+retakeBtn.addEventListener('click', () => {
+  capturedDataUrl = null;
+  snapshot.style.display = 'none';
+  video.style.display = 'block';
+  captureBtn.style.display = 'block';
+  retakeBtn.style.display = 'none';
+  checkReady();
+});
+
+empIdInput.addEventListener('input', () => {
+  resolvedName = null; resolvedHub = null;
+  nameResult.style.display = 'none';
+  checkReady();
+  clearTimeout(lookupTimer);
+  const id = empIdInput.value.trim();
+  if (!id) return;
+  lookupTimer = setTimeout(() => lookupEmployee(id), 500);
+});
+
+async function lookupEmployee(id) {
+  nameResult.style.display = 'flex';
+  nameResult.textContent = 'Looking up…';
+  try {
+    const res = await fetch(`${SCRIPT_URL}?id=${encodeURIComponent(id)}`);
+    const data = await res.json();
+    if (data.found) {
+      resolvedName = data.name;
+      resolvedHub = data.hub || '';
+      nameResult.innerHTML = `<span class="ok">✅ ${resolvedName}</span><span>${resolvedHub}</span>`;
+    } else {
+      resolvedName = null;
+      nameResult.innerHTML = `<span class="err">❌ Employee ID not found</span>`;
+    }
+  } catch (e) {
+    resolvedName = null;
+    nameResult.innerHTML = `<span class="err">❌ Lookup failed</span>`;
+  }
+  checkReady();
+}
+
+function checkReady() {
+  submitBtn.disabled = !(empIdInput.value.trim() && resolvedName && capturedDataUrl && coords);
+}
+
+submitBtn.addEventListener('click', async () => {
+  submitBtn.disabled = true;
+  statusEl.textContent = 'Submitting…';
+  statusEl.className = 'warn';
+
+  const payload = {
+    empId: empIdInput.value.trim(),
+    name: resolvedName,
+    hub: resolvedHub,
+    photo: capturedDataUrl,
+    lat: coords.lat,
+    lng: coords.lng,
+    accuracy: coords.acc,
+    timestamp: new Date().toISOString()
+  };
+
+  try {
+    await fetch(SCRIPT_URL, {
+      method: 'POST',
+      mode: 'no-cors', // Apps Script exec endpoints don't return CORS headers
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    });
+    statusEl.textContent = '✅ Check-in recorded successfully';
+    statusEl.className = 'ok';
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    document.querySelectorAll('input,button').forEach(el => el.disabled = true);
+  } catch (e) {
+    statusEl.textContent = '❌ Submission failed — check network / URL';
+    statusEl.className = 'err';
+    submitBtn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
